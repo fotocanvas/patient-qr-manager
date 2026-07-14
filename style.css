@@ -277,16 +277,211 @@ input, textarea { user-select: text; }
 
 /* 病人详情页 */
 #viewPatient {
-  padding: 24px 32px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+}
+
+.patient-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 32px 24px;
+  position: relative;
+}
+
+/* 查看模式（BrowserView 嵌入） */
+#viewViewer {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.viewer-bar {
+  height: 48px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  z-index: 10;
+}
+
+.viewer-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.viewer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.viewer-counter {
+  font-size: 13px;
+  color: var(--text-sec);
+  font-weight: 500;
+  padding: 0 4px;
+  min-width: 40px;
+  text-align: center;
+}
+
+.viewer-area {
+  flex: 1;
+  position: relative;
+  background: #fff;
+  overflow: hidden;
+}
+
+.viewer-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.viewer-loading.hidden {
+  display: none;
+}
+
+/* ═══════════════════════════════════════════
+   卡片网格（多 BrowserView 同时显示）
+   ═══════════════════════════════════════════ */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding-bottom: 24px;
+}
+
+.card-grid.focused {
+  display: none;
+}
+
+.card-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-header {
+  height: 36px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: #F8FAFC;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-index {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary-bg);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.card-url {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.card-actions .btn-icon {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-content {
+  height: 320px;
+  min-height: 320px;
+  background: #fff;
+  position: relative;
+  overflow: hidden;
+}
+
+.card-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.card-loading .spinner {
+  width: 24px;
+  height: 24px;
+  border-width: 2px;
+}
+
+/* 焦点模式工具栏 */
+.focus-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 32px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.focus-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .patient-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 24px;
-  padding-bottom: 20px;
+  padding: 24px 32px 20px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .patient-name {
@@ -326,7 +521,19 @@ input, textarea { user-select: text; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  padding: 16px 32px;
+  flex-shrink: 0;
+}
+
+.results-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.results-toolbar-right {
+  display: flex;
+  gap: 6px;
 }
 
 .results-count {
@@ -335,85 +542,204 @@ input, textarea { user-select: text; }
   font-weight: 500;
 }
 
-.results-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+.preload-badge {
+  font-size: 11px;
+  color: var(--success);
+  font-weight: 600;
+  background: #D1FAE5;
+  padding: 2px 8px;
+  border-radius: 10px;
 }
 
-/* 结果卡片 */
-.result-card {
+/* ── 可展开结果列表 ─────────────────────── */
+.results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.result-row {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   overflow: hidden;
-  transition: box-shadow var(--transition), transform var(--transition);
-  cursor: default;
+  transition: box-shadow var(--transition);
 }
 
-.result-card:hover {
+.result-row:hover {
+  box-shadow: var(--shadow);
+}
+
+.result-row.expanded {
   box-shadow: var(--shadow-lg);
-  transform: translateY(-1px);
+  border-color: var(--primary-lt);
 }
 
-.result-card-header {
+.result-row-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.result-row-header:hover {
   background: #FAFBFC;
 }
 
-.result-card-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+.result-row-index {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
   background: var(--primary-bg);
   color: var(--primary);
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
   flex-shrink: 0;
 }
 
-.result-card-title {
+.result-row-info {
   flex: 1;
   min-width: 0;
 }
 
-.result-card-title h4 {
+.result-row-title {
   font-size: 13px;
   font-weight: 600;
-  margin-bottom: 2px;
+  margin-bottom: 1px;
 }
 
-.result-card-title span {
+.result-row-url {
   font-size: 11px;
   color: var(--text-muted);
-}
-
-.result-card-body {
-  padding: 14px;
-}
-
-.result-url {
-  font-size: 12px;
-  color: var(--text-sec);
-  word-break: break-all;
-  line-height: 1.5;
-  max-height: 54px;
+  white-space: nowrap;
   overflow: hidden;
-  margin-bottom: 12px;
+  text-overflow: ellipsis;
 }
 
-.result-card-actions {
+.result-row-status {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
-.result-card-actions .btn {
-  flex: 1;
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.status-dot.loading { background: var(--warning); animation: pulse 1s infinite; }
+.status-dot.ready   { background: var(--success); }
+.status-dot.idle    { background: var(--border); }
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+.result-row-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.result-row-actions .btn-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.expand-chevron {
+  width: 20px;
+  height: 20px;
+  color: var(--text-muted);
+  transition: transform .25s ease;
+  flex-shrink: 0;
+}
+
+.result-row.expanded .expand-chevron {
+  transform: rotate(180deg);
+}
+
+/* ── 展开内容区（webview 容器）───────────── */
+.result-row-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height .35s ease;
+  border-top: none;
+  position: relative;
+}
+
+.result-row.expanded .result-row-content {
+  max-height: 1200px;
+  border-top: 1px solid var(--border);
+  overflow: visible;
+}
+
+/* 横向滚动包装层：让 webview 在窄容器中按宽屏渲染 */
+.webview-wrapper {
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: #fff;
+  position: relative;
+}
+
+.result-row-content webview {
+  width: 100%;
+  min-width: 1000px;
+  height: 500px;
+  border: none;
+  display: block;
+}
+
+.result-row-content .webview-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 500px;
+  color: var(--text-muted);
+  font-size: 14px;
+  gap: 10px;
+}
+
+.result-row-content .webview-loading .spinner {
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+}
+
+/* 拖拽调整高度手柄 */
+.resize-handle {
+  height: 6px;
+  background: var(--border);
+  cursor: ns-resize;
+  position: relative;
+  transition: background .15s;
+}
+
+.resize-handle:hover,
+.resize-handle.active {
+  background: var(--primary-lt);
+}
+
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 2px;
+  background: var(--text-muted);
+  border-radius: 1px;
+  opacity: .4;
 }
 
 /* 空状态 */

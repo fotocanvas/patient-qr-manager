@@ -4,9 +4,11 @@
 const state = {
   patients: [],
   selectedId: null,
-  editingId: null,          // 编辑中的病人 id（模态框用）
+  editingId: null,
   searchQuery: '',
-  pendingImports: [],       // 待确认导入的结果
+  pendingImports: [],
+  openPatients: new Set(),     // 已打开 BrowserView 的病人 id 集合
+  focusedResultId: null,       // 焦点模式下的 resultId（null=网格模式）
 };
 
 /* ── DOM 缓存 ───────────────────────────── */
@@ -24,9 +26,16 @@ const dom = {
   patientIdBadge:$('#patientIdBadge'),
   patientDate:   $('#patientDate'),
   resultsCount:  $('#resultsCount'),
-  resultsGrid:   $('#resultsGrid'),
+  resultsList:   $('#resultsList'),
   resultsEmpty:  $('#resultsEmpty'),
+  preloadBadge:  $('#preloadBadge'),
   dropOverlay:   $('#dropOverlay'),
+  // 卡片网格
+  cardGrid:      $('#cardGrid'),
+  patientBody:   $('#patientBody'),
+  // 焦点模式
+  focusBar:       $('#focusBar'),
+  focusTitle:     $('#focusTitle'),
   toastContainer:$('#toastContainer'),
   // 模态框：病人
   modalPatient:      $('#modalPatient'),
@@ -81,7 +90,11 @@ function updatePatient(id, data) {
   save();
 }
 
-function deletePatient(id) {
+async function deletePatient(id) {
+  // 关闭该病人的所有 BrowserView
+  await window.api.viewClosePatient(id);
+  state.openPatients.delete(id);
+
   state.patients = state.patients.filter(p => p.id !== id);
   save();
   if (state.selectedId === id) {
@@ -107,7 +120,6 @@ function decodeQRFromDataUrl(dataUrl) {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      // 限制尺寸以加速解码
       const maxDim = 1200;
       let w = img.width, h = img.height;
       if (w > maxDim || h > maxDim) {
@@ -150,7 +162,6 @@ async function startImport(imageSources) {
     return;
   }
 
-  // 显示导入模态框
   showModal(dom.modalImport);
   dom.importProgress.classList.remove('hidden');
   dom.importResults.classList.add('hidden');
@@ -183,7 +194,6 @@ async function startImport(imageSources) {
 
   state.pendingImports = results.filter(r => r.status === 'success');
 
-  // 显示结果
   dom.importProgress.classList.add('hidden');
   dom.importResults.classList.remove('hidden');
   dom.importResults.innerHTML = results.map(r => `
@@ -213,6 +223,7 @@ function confirmImport() {
   if (!patient) return;
 
   const now = new Date().toISOString();
+  const newCount = state.pendingImports.length;
   for (const item of state.pendingImports) {
     patient.results.push({
       id: generateId(),
@@ -228,10 +239,16 @@ function confirmImport() {
   renderPatientDetail();
   renderSidebar();
 
-  const count = patient.results.length;
-  toast(`已导入 ${state.pendingImports.length || ''} 项影像结果`.replace(' 项', ` ${patient.results.filter(r => !r._counted).length} 项`), 'success');
-  // 简化 toast
-  toast(`导入成功！当前共 ${count} 项影像结果`, 'success');
+  toast(`导入成功！当前共 ${patient.results.length} 项影像结果`, 'success');
+
+  // 如果该病人已有打开的视图，为新导入的结果也创建 BrowserView
+  if (state.openPatients.has(state.selectedId)) {
+    const newResults = patient.results.slice(-newCount);
+    window.api.viewOpenAll(state.selectedId, newResults).then(() => {
+      window.api.viewShowPatient(state.selectedId);
+      requestAnimationFrame(() => layoutBrowserViews());
+    });
+  }
 }
 
 /* ═══════════════════════════════════════════
@@ -249,6 +266,7 @@ function renderSidebar() {
     const initial = p.name.charAt(0);
     const isActive = p.id === state.selectedId;
     const count = p.results.length;
+    const isOpen = state.openPatients.has(p.id);
     return `
       <div class="patient-item ${isActive ? 'active' : ''}" data-id="${p.id}">
         <div class="patient-avatar">${escapeHtml(initial)}</div>
@@ -256,6 +274,7 @@ function renderSidebar() {
           <div class="patient-item-name">${escapeHtml(p.name)}</div>
           <div class="patient-item-meta">
             ${p.patientId ? escapeHtml(p.patientId) : '无编号'}
+            ${isOpen ? '· 已打开' : ''}
           </div>
         </div>
         ${count > 0 ? `<span class="patient-item-badge">${count}</span>` : ''}
@@ -277,6 +296,8 @@ function renderSidebar() {
 function showWelcome() {
   dom.viewWelcome.classList.remove('hidden');
   dom.viewPatient.classList.add('hidden');
+  // 隐藏焦点栏
+  dom.focusBar.classList.add('hidden');
 }
 
 function showPatientDetail() {
@@ -297,64 +318,251 @@ function renderPatientDetail() {
   const count = patient.results.length;
   dom.resultsCount.textContent = `${count} 项影像结果`;
 
-  if (count === 0) {
-    dom.resultsGrid.classList.add('hidden');
-    dom.resultsEmpty.classList.remove('hidden');
-    $('#btnOpenAll').classList.add('hidden');
-  } else {
-    dom.resultsGrid.classList.remove('hidden');
-    dom.resultsEmpty.classList.add('hidden');
-    $('#btnOpenAll').classList.remove('hidden');
+  const hasResults = count > 0;
+  const isOpen = state.openPatients.has(state.selectedId);
 
-    dom.resultsGrid.innerHTML = patient.results.map((r, i) => `
-      <div class="result-card" data-result-id="${r.id}">
-        <div class="result-card-header">
-          <div class="result-card-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-              <rect x="3" y="3" width="7" height="7" rx="1"/>
-              <rect x="14" y="3" width="7" height="7" rx="1"/>
-              <rect x="3" y="14" width="7" height="7" rx="1"/>
-              <path d="M14 14h3v3m4-3h-3v3m-4 4h3v-3m4 0h-3v3"/>
-            </svg>
-          </div>
-          <div class="result-card-title">
-            <h4>影像结果 #${i + 1}</h4>
-            <span>${formatDate(r.importedAt)}</span>
-          </div>
+  // 工具栏按钮
+  $('#btnOpenViews').classList.toggle('hidden', !hasResults || isOpen);
+  $('#btnCloseViews').classList.toggle('hidden', !isOpen);
+  $('#btnOpenAll').classList.toggle('hidden', !hasResults);
+
+  if (!hasResults) {
+    dom.resultsList.innerHTML = '';
+    dom.cardGrid.classList.add('hidden');
+    dom.resultsEmpty.classList.remove('hidden');
+    dom.focusBar.classList.add('hidden');
+    return;
+  }
+
+  dom.resultsEmpty.classList.add('hidden');
+
+  if (isOpen) {
+    // 已打开影像：显示卡片网格
+    renderCardGrid(patient);
+    dom.resultsList.classList.add('hidden');
+    dom.cardGrid.classList.remove('hidden');
+    dom.cardGrid.classList.remove('focused');
+    dom.focusBar.classList.add('hidden');
+  } else {
+    // 未打开影像：显示简单列表
+    renderSimpleList(patient);
+    dom.cardGrid.classList.add('hidden');
+    dom.resultsList.classList.remove('hidden');
+    dom.focusBar.classList.add('hidden');
+  }
+}
+
+function renderSimpleList(patient) {
+  dom.resultsList.innerHTML = patient.results.map((r, i) => `
+    <div class="result-row" data-result-id="${r.id}">
+      <div class="result-row-header">
+        <span class="result-row-index">${i + 1}</span>
+        <div class="result-row-info">
+          <div class="result-row-title">影像结果 #${i + 1}</div>
+          <div class="result-row-url">${escapeHtml(r.url)}</div>
         </div>
-        <div class="result-card-body">
-          <div class="result-url" title="${escapeHtml(r.url)}">${escapeHtml(r.url)}</div>
-          <div class="result-card-actions">
-            <button class="btn btn-outline btn-sm" onclick="openResult('${r.id}')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                <polyline points="15 3 21 3 21 9"/>
-                <line x1="10" y1="14" x2="21" y2="3"/>
-              </svg>
-              打开链接
-            </button>
-            <button class="btn btn-ghost btn-sm btn-danger-ghost" onclick="deleteResult('${r.id}')" title="删除">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              </svg>
-            </button>
-          </div>
+        <div class="result-row-actions">
+          <button class="btn btn-ghost btn-icon" onclick="openResult('${r.id}')" title="在外部浏览器打开">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+          </button>
+          <button class="btn btn-ghost btn-icon btn-danger-ghost" onclick="deleteResult('${r.id}')" title="删除">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
         </div>
       </div>
-    `).join('');
+    </div>
+  `).join('');
+}
+
+function renderCardGrid(patient) {
+  dom.cardGrid.innerHTML = patient.results.map((r, i) => `
+    <div class="card-item" data-result-id="${r.id}">
+      <div class="card-header">
+        <span class="card-index">${i + 1}</span>
+        <span class="card-url" title="${escapeHtml(r.url)}">${escapeHtml(r.url)}</span>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-icon btn-sm" onclick="focusResult('${r.id}')" title="放大查看">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+            </svg>
+          </button>
+          <button class="btn btn-ghost btn-icon btn-sm" onclick="fullscreenResult('${r.id}')" title="独立窗口打开">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/>
+            </svg>
+          </button>
+          <button class="btn btn-ghost btn-icon btn-sm btn-danger-ghost" onclick="deleteResult('${r.id}')" title="删除">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="card-content" id="card-content-${r.id}">
+        <div class="card-loading">
+          <div class="spinner"></div>
+          <p>正在加载影像页面…</p>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+/* ═══════════════════════════════════════════
+   多 BrowserView 管理
+   ═══════════════════════════════════════════ */
+async function selectPatient(id) {
+  // 隐藏当前病人的视图（不销毁）
+  if (state.selectedId && state.openPatients.has(state.selectedId)) {
+    await window.api.viewHidePatient(state.selectedId);
   }
+
+  state.selectedId = id;
+  state.focusedResultId = null;
+  renderSidebar();
+  showPatientDetail();
+
+  // 如果新病人已有打开的视图，显示它们
+  if (state.openPatients.has(id)) {
+    await window.api.viewShowPatient(id);
+    requestAnimationFrame(() => layoutBrowserViews());
+  }
+}
+
+async function openAllViews() {
+  const patient = getPatient(state.selectedId);
+  if (!patient || patient.results.length === 0) return;
+
+  toast(`正在打开 ${patient.results.length} 个影像页面…`, 'info');
+
+  // 创建所有 BrowserView（加载 URL）
+  await window.api.viewOpenAll(state.selectedId, patient.results);
+
+  // 显示所有视图
+  await window.api.viewShowPatient(state.selectedId);
+
+  state.openPatients.add(state.selectedId);
+  renderSidebar();
+
+  // 渲染卡片网格
+  renderPatientDetail();
+
+  // 等待 DOM 渲染后布局 BrowserView
+  requestAnimationFrame(() => layoutBrowserViews());
+
+  toast(`已打开 ${patient.results.length} 个影像页面`, 'success');
+}
+
+async function closeAllViews() {
+  if (!state.selectedId) return;
+  await window.api.viewClosePatient(state.selectedId);
+  state.openPatients.delete(state.selectedId);
+  state.focusedResultId = null;
+  renderSidebar();
+  renderPatientDetail();
+  toast('已关闭全部影像页面', 'info');
+}
+
+function layoutBrowserViews() {
+  if (!state.selectedId || !state.openPatients.has(state.selectedId)) return;
+
+  // 焦点模式：只布局一个全屏视图
+  if (state.focusedResultId) {
+    layoutFocusedView();
+    return;
+  }
+
+  const patient = getPatient(state.selectedId);
+  if (!patient) return;
+
+  const items = [];
+  for (const r of patient.results) {
+    const el = document.getElementById(`card-content-${r.id}`);
+    if (!el) continue;
+    const rect = el.getBoundingClientRect();
+    items.push({
+      patientId: state.selectedId,
+      resultId: r.id,
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height,
+    });
+  }
+  if (items.length > 0) {
+    window.api.viewSetBounds(items);
+  }
+}
+
+function layoutFocusedView() {
+  if (!state.focusedResultId) return;
+  const patient = getPatient(state.selectedId);
+  if (!patient) return;
+
+  // 焦点视图占据卡片网格区域（卡片网格已隐藏，但位置仍可计算）
+  // 使用焦点栏下方的整个区域
+  const focusBar = dom.focusBar;
+  const focusBarRect = focusBar.getBoundingClientRect();
+  const mainRect = dom.mainContent.getBoundingClientRect();
+
+  const x = mainRect.left;
+  const y = focusBarRect.bottom;
+  const w = mainRect.width;
+  const h = mainRect.height - (focusBarRect.bottom - mainRect.top);
+
+  window.api.viewSetBounds([{
+    patientId: state.selectedId,
+    resultId: state.focusedResultId,
+    x: x,
+    y: y,
+    width: Math.max(0, w),
+    height: Math.max(0, h),
+  }]);
+}
+
+async function focusResult(resultId) {
+  const patient = getPatient(state.selectedId);
+  if (!patient) return;
+  const result = patient.results.find(r => r.id === resultId);
+  if (!result) return;
+
+  // 隐藏所有视图，只显示焦点视图
+  await window.api.viewHidePatient(state.selectedId);
+  await window.api.viewShowResult(state.selectedId, resultId);
+
+  state.focusedResultId = resultId;
+
+  // 更新 UI
+  dom.cardGrid.classList.add('focused');
+  dom.resultsList.classList.add('hidden');
+  dom.focusBar.classList.remove('hidden');
+  dom.focusTitle.textContent = `${patient.name} — 影像结果 #${patient.results.indexOf(result) + 1}`;
+  $('#btnFocusFullscreen').onclick = () => window.api.openExternal(result.url);
+
+  requestAnimationFrame(() => layoutFocusedView());
+}
+
+async function unfocusResult() {
+  // 恢复所有视图
+  await window.api.viewShowPatient(state.selectedId);
+
+  state.focusedResultId = null;
+  dom.cardGrid.classList.remove('focused');
+  dom.focusBar.classList.add('hidden');
+
+  requestAnimationFrame(() => layoutBrowserViews());
 }
 
 /* ═══════════════════════════════════════════
    操作函数
    ═══════════════════════════════════════════ */
-function selectPatient(id) {
-  state.selectedId = id;
-  renderSidebar();
-  showPatientDetail();
-}
-
 function openResult(resultId) {
   const patient = getPatient(state.selectedId);
   if (!patient) return;
@@ -362,13 +570,35 @@ function openResult(resultId) {
   if (result) window.api.openExternal(result.url);
 }
 
-function deleteResult(resultId) {
+function fullscreenResult(resultId) {
   const patient = getPatient(state.selectedId);
   if (!patient) return;
+  const result = patient.results.find(r => r.id === resultId);
+  if (result) window.api.fullscreenOpen(result.url);
+}
+
+async function deleteResult(resultId) {
+  const patient = getPatient(state.selectedId);
+  if (!patient) return;
+
+  // 如果焦点模式正在查看该结果，先退出
+  if (state.focusedResultId === resultId) {
+    await unfocusResult();
+  }
+
+  // 关闭该结果的 BrowserView
+  await window.api.viewCloseResult(state.selectedId, resultId);
+
   patient.results = patient.results.filter(r => r.id !== resultId);
   save();
   renderPatientDetail();
   renderSidebar();
+
+  // 重新布局剩余的 BrowserView
+  if (state.openPatients.has(state.selectedId)) {
+    requestAnimationFrame(() => layoutBrowserViews());
+  }
+
   toast('已删除该影像结果', 'success');
 }
 
@@ -376,7 +606,6 @@ async function openAllResults() {
   const patient = getPatient(state.selectedId);
   if (!patient || patient.results.length === 0) return;
 
-  // 间隔打开，避免浏览器拦截弹窗
   for (let i = 0; i < patient.results.length; i++) {
     setTimeout(() => {
       window.api.openExternal(patient.results[i].url);
@@ -512,7 +741,6 @@ function bindEvents() {
     if (e.target === dom.modalPatient) closeModal(dom.modalPatient);
   });
 
-  // Enter 键保存
   dom.inputName.addEventListener('keydown', (e) => { if (e.key === 'Enter') savePatientModal(); });
   dom.inputId.addEventListener('keydown', (e) => { if (e.key === 'Enter') savePatientModal(); });
 
@@ -545,6 +773,27 @@ function bindEvents() {
   /* ── 汇报展示 ─────────────────────────── */
   $('#btnPresent').addEventListener('click', openPresentation);
   $('#btnOpenAll').addEventListener('click', openAllResults);
+  $('#btnOpenViews').addEventListener('click', openAllViews);
+  $('#btnCloseViews').addEventListener('click', closeAllViews);
+
+  /* ── 焦点模式 ─────────────────────────── */
+  $('#btnFocusBack').addEventListener('click', unfocusResult);
+
+  /* ── BrowserView 布局同步 ─────────────── */
+  // 滚动时重新计算 BrowserView 位置（节流）
+  let scrollTimer = null;
+  dom.patientBody.addEventListener('scroll', () => {
+    if (scrollTimer) return;
+    scrollTimer = requestAnimationFrame(() => {
+      layoutBrowserViews();
+      scrollTimer = null;
+    });
+  });
+
+  // 窗口 resize 时重新布局
+  window.api.onViewResize(() => {
+    requestAnimationFrame(() => layoutBrowserViews());
+  });
 
   /* ── 拖拽导入 ─────────────────────────── */
   let dragCounter = 0;
@@ -593,7 +842,6 @@ function bindEvents() {
 
   /* ── 剪贴板粘贴 ───────────────────────── */
   document.addEventListener('paste', async (e) => {
-    // 如果焦点在 input/textarea 中，不拦截
     const tag = document.activeElement.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
@@ -602,7 +850,6 @@ function bindEvents() {
       return;
     }
 
-    // 尝试从剪贴板读取图片
     const dataUrl = await window.api.readClipboard();
     if (dataUrl) {
       startImport([{ name: '剪贴板图片', dataUrl }]);
@@ -611,25 +858,22 @@ function bindEvents() {
 
   /* ── 键盘快捷键 ───────────────────────── */
   document.addEventListener('keydown', (e) => {
-    // Ctrl+N: 添加病人
     if (e.ctrlKey && e.key === 'n') {
       e.preventDefault();
       openAddPatientModal();
     }
-    // Ctrl+I: 导入二维码
     if (e.ctrlKey && e.key === 'i') {
       e.preventDefault();
       if (state.selectedId) $('#btnImportQR').click();
     }
-    // Ctrl+P: 汇报展示
     if (e.ctrlKey && e.key === 'p') {
       e.preventDefault();
       if (state.selectedId) openPresentation();
     }
-    // Escape: 关闭模态框
     if (e.key === 'Escape') {
       closeModal(dom.modalPatient);
       closeModal(dom.modalImport);
+      if (state.focusedResultId) unfocusResult();
     }
   });
 }

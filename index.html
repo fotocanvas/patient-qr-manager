@@ -135,29 +135,72 @@
         </div>
 
         <div class="results-toolbar">
-          <span class="results-count" id="resultsCount">0 项影像结果</span>
-          <button class="btn btn-sm btn-outline" id="btnOpenAll" title="在浏览器中打开全部影像链接">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-              <polyline points="15 3 21 3 21 9"/>
-              <line x1="10" y1="14" x2="21" y2="3"/>
+          <div class="results-toolbar-left">
+            <span class="results-count" id="resultsCount">0 项影像结果</span>
+            <span class="preload-badge hidden" id="preloadBadge"></span>
+          </div>
+          <div class="results-toolbar-right">
+            <button class="btn btn-sm btn-primary hidden" id="btnOpenViews" title="在软件内打开全部影像页面（卡片显示）">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+              </svg>
+              打开全部影像
+            </button>
+            <button class="btn btn-sm btn-outline hidden" id="btnCloseViews" title="关闭全部影像页面">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+              关闭全部
+            </button>
+            <button class="btn btn-sm btn-outline hidden" id="btnOpenAll" title="在浏览器中打开全部影像链接">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                <polyline points="15 3 21 3 21 9"/>
+                <line x1="10" y1="14" x2="21" y2="3"/>
+              </svg>
+              外部打开
+            </button>
+          </div>
+        </div>
+
+        <!-- 焦点模式工具栏（放大单个影像时显示） -->
+        <div class="focus-bar hidden" id="focusBar">
+          <button class="btn btn-ghost btn-sm" id="btnFocusBack" title="返回卡片网格">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
             </svg>
-            全部打开
+            返回卡片
+          </button>
+          <span class="focus-title" id="focusTitle"></span>
+          <button class="btn btn-ghost btn-icon" id="btnFocusFullscreen" title="独立窗口打开">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
           </button>
         </div>
 
-        <div class="results-grid" id="resultsGrid">
-          <!-- 动态生成 -->
-        </div>
+        <div class="patient-body" id="patientBody">
+          <!-- 卡片网格（打开全部影像后显示） -->
+          <div class="card-grid hidden" id="cardGrid">
+            <!-- 动态生成 -->
+          </div>
 
-        <div class="results-empty hidden" id="resultsEmpty">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48" class="empty-icon">
-            <rect x="3" y="3" width="18" height="18" rx="2"/>
-            <circle cx="8.5" cy="8.5" r="1.5"/>
-            <polyline points="21 15 16 10 5 21"/>
-          </svg>
-          <p>暂无影像结果</p>
-          <p class="empty-hint">点击上方「导入二维码」按钮，或拖拽图片到此处</p>
+          <!-- 普通结果列表（未打开影像时显示） -->
+          <div class="results-list" id="resultsList">
+            <!-- 动态生成 -->
+          </div>
+
+          <div class="results-empty hidden" id="resultsEmpty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48" class="empty-icon">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
+            </svg>
+            <p>暂无影像结果</p>
+            <p class="empty-hint">点击上方「导入二维码」按钮，或拖拽图片到此处</p>
+          </div>
         </div>
       </div>
     </main>
