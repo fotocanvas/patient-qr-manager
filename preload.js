@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('api', {
 
   /* 二维码 / 文件 */
   decodeQR:        (base64)     => ipcRenderer.invoke('qr:decode', base64),
+  decodeQRZXing:   (pixelData)  => ipcRenderer.invoke('qr:decodeZXing', pixelData),
   selectImages:    ()           => ipcRenderer.invoke('file:select'),
   readClipboard:   ()           => ipcRenderer.invoke('clipboard:readImage'),
 
