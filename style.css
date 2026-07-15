@@ -454,6 +454,40 @@ input, textarea { user-select: text; }
   border-width: 2px;
 }
 
+.card-label-input,
+.result-label-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  outline: none;
+  transition: all .15s;
+  text-overflow: ellipsis;
+}
+
+.card-label-input {
+  margin: 0 8px;
+}
+
+.card-label-input:hover,
+.result-label-input:hover {
+  border-color: var(--border);
+  background: #fff;
+}
+
+.card-label-input:focus,
+.result-label-input:focus {
+  border-color: var(--primary-lt);
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(37,99,235,.1);
+}
+
 /* 焦点模式工具栏 */
 .focus-bar {
   display: flex;
