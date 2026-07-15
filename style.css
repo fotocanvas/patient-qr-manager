@@ -1040,6 +1040,34 @@ input, textarea { user-select: text; }
 .import-item-status.dup     { color: var(--warning); }
 
 /* ═══════════════════════════════════════════
+   粘贴链接模态框
+   ═══════════════════════════════════════════ */
+.paste-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.paste-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 10px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  resize: vertical;
+  outline: none;
+  transition: border-color .15s;
+  box-sizing: border-box;
+}
+
+.paste-textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+}
+
+/* ═══════════════════════════════════════════
    拖拽覆盖层
    ═══════════════════════════════════════════ */
 .drop-overlay {
