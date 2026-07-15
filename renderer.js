@@ -113,7 +113,7 @@ function generateId() {
 }
 
 /* ═══════════════════════════════════════════
-   二维码解码（增强版：多种预处理 + 多尺度）
+   二维码解码（增强版：多尺度 + 多种预处理）
    ═══════════════════════════════════════════ */
 function toGrayscale(imageData) {
   const data = new Uint8ClampedArray(imageData.data);
@@ -159,6 +159,152 @@ function invert(imageData) {
   return new ImageData(data, imageData.width, imageData.height);
 }
 
+function histogramEqualize(imageData) {
+  const gray = toGrayscale(imageData);
+  const data = new Uint8ClampedArray(gray.data);
+  const width = gray.width;
+  const height = gray.height;
+  const total = width * height;
+
+  const hist = new Array(256).fill(0);
+  for (let i = 0; i < data.length; i += 4) {
+    hist[data[i]]++;
+  }
+
+  const cdf = new Array(256).fill(0);
+  cdf[0] = hist[0];
+  for (let i = 1; i < 256; i++) {
+    cdf[i] = cdf[i - 1] + hist[i];
+  }
+
+  const cdfMin = cdf.find(v => v > 0) || 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const v = Math.round(((cdf[data[i]] - cdfMin) / (total - cdfMin)) * 255);
+    data[i] = v;
+    data[i + 1] = v;
+    data[i + 2] = v;
+  }
+  return new ImageData(data, width, height);
+}
+
+function gaussianBlur(imageData, radius = 1) {
+  if (radius <= 0) {
+    return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  }
+  const width = imageData.width;
+  const height = imageData.height;
+  const src = new Uint8ClampedArray(imageData.data);
+  const dst = new Uint8ClampedArray(src.length);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let r = 0, g = 0, b = 0, count = 0;
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          const ny = y + dy;
+          const nx = x + dx;
+          if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+            const idx = (ny * width + nx) * 4;
+            r += src[idx];
+            g += src[idx + 1];
+            b += src[idx + 2];
+            count++;
+          }
+        }
+      }
+      const idx = (y * width + x) * 4;
+      dst[idx] = r / count;
+      dst[idx + 1] = g / count;
+      dst[idx + 2] = b / count;
+      dst[idx + 3] = src[idx + 3];
+    }
+  }
+  return new ImageData(dst, width, height);
+}
+
+function adaptiveThreshold(imageData, blockSize = 15, c = 10) {
+  const gray = toGrayscale(imageData);
+  const data = new Uint8ClampedArray(gray.data);
+  const width = gray.width;
+  const height = gray.height;
+  const half = Math.floor(blockSize / 2);
+
+  // 积分图，O(n) 自适应阈值
+  const integral = new Array(height + 1).fill(0).map(() => new Array(width + 1).fill(0));
+  for (let y = 1; y <= height; y++) {
+    let rowSum = 0;
+    for (let x = 1; x <= width; x++) {
+      rowSum += data[((y - 1) * width + (x - 1)) * 4];
+      integral[y][x] = integral[y - 1][x] + rowSum;
+    }
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const x1 = Math.max(0, x - half);
+      const y1 = Math.max(0, y - half);
+      const x2 = Math.min(width - 1, x + half);
+      const y2 = Math.min(height - 1, y + half);
+      const count = (x2 - x1 + 1) * (y2 - y1 + 1);
+      const sum = integral[y2 + 1][x2 + 1] - integral[y1][x2 + 1] - integral[y2 + 1][x1] + integral[y1][x1];
+      const threshold = (sum / count) - c;
+      const idx = (y * width + x) * 4;
+      const v = data[idx] > threshold ? 255 : 0;
+      data[idx] = v;
+      data[idx + 1] = v;
+      data[idx + 2] = v;
+    }
+  }
+  return new ImageData(data, width, height);
+}
+
+function sharpen(imageData) {
+  const src = new Uint8ClampedArray(imageData.data);
+  const width = imageData.width;
+  const height = imageData.height;
+  const dst = new Uint8ClampedArray(src.length);
+  const kernel = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let r = 0, g = 0, b = 0;
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          const ny = y + ky;
+          const nx = x + kx;
+          if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+            const idx = (ny * width + nx) * 4;
+            const k = kernel[(ky + 1) * 3 + (kx + 1)];
+            r += src[idx] * k;
+            g += src[idx + 1] * k;
+            b += src[idx + 2] * k;
+          }
+        }
+      }
+      const idx = (y * width + x) * 4;
+      dst[idx] = Math.min(255, Math.max(0, r));
+      dst[idx + 1] = Math.min(255, Math.max(0, g));
+      dst[idx + 2] = Math.min(255, Math.max(0, b));
+      dst[idx + 3] = src[idx + 3];
+    }
+  }
+  return new ImageData(dst, width, height);
+}
+
+function unsharpMask(imageData, amount = 1.5, radius = 1) {
+  const blurred = gaussianBlur(imageData, radius);
+  const data = new Uint8ClampedArray(imageData.data);
+  const width = imageData.width;
+  const height = imageData.height;
+  for (let i = 0; i < data.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const diff = data[i + c] - blurred.data[i + c];
+      data[i + c] = Math.min(255, Math.max(0, data[i + c] + diff * amount));
+    }
+  }
+  return new ImageData(data, width, height);
+}
+
 function getImageDataAtScale(img, w, h) {
   const canvas = document.createElement('canvas');
   canvas.width = w;
@@ -177,35 +323,51 @@ function decodeQRFromDataUrl(dataUrl) {
         return;
       }
 
-      const maxDim = 1600;
-      let w = img.width, h = img.height;
-      if (w > maxDim || h > maxDim) {
-        const scale = maxDim / Math.max(w, h);
-        w = Math.round(w * scale);
-        h = Math.round(h * scale);
+      const MAX_DIM = 1600;
+      let baseW = img.width;
+      let baseH = img.height;
+      if (baseW > MAX_DIM || baseH > MAX_DIM) {
+        const scale = MAX_DIM / Math.max(baseW, baseH);
+        baseW = Math.round(baseW * scale);
+        baseH = Math.round(baseH * scale);
       }
 
-      const baseImageData = getImageDataAtScale(img, w, h);
+      const scales = [0.75, 1.0, 1.33, 1.67];
+      const thresholds = [80, 100, 120, 140, 160, 180];
 
-      const preprocessors = [
-        { name: 'original', fn: (d) => d },
-        { name: 'grayscale', fn: toGrayscale },
-        { name: 'contrast', fn: enhanceContrast },
-        { name: 'threshold-128', fn: (d) => applyThreshold(d, 128) },
-        { name: 'threshold-160', fn: (d) => applyThreshold(d, 160) },
-        { name: 'threshold-inverted', fn: (d) => invert(applyThreshold(d, 128)) },
-      ];
+      for (const scale of scales) {
+        const w = Math.max(100, Math.round(baseW * scale));
+        const h = Math.max(100, Math.round(baseH * scale));
+        const baseImageData = getImageDataAtScale(img, w, h);
 
-      for (const p of preprocessors) {
-        try {
-          const processed = p.fn(baseImageData);
-          const code = jsQR(processed.data, w, h);
-          if (code && code.data) {
-            resolve({ ok: true, data: code.data });
-            return;
+        const preprocessors = [
+          { name: 'original', fn: (d) => d },
+          { name: 'grayscale', fn: toGrayscale },
+          { name: 'contrast', fn: enhanceContrast },
+          { name: 'equalize', fn: histogramEqualize },
+          { name: 'sharpen', fn: sharpen },
+          { name: 'unsharp-mask', fn: unsharpMask },
+          { name: 'adaptive-threshold', fn: (d) => adaptiveThreshold(d, 15, 10) },
+          { name: 'blur-threshold-128', fn: (d) => applyThreshold(gaussianBlur(d, 1), 128) },
+          { name: 'threshold-inverted-128', fn: (d) => invert(applyThreshold(d, 128)) },
+        ];
+
+        // 尝试固定阈值
+        for (const t of thresholds) {
+          preprocessors.push({ name: `threshold-${t}`, fn: (d) => applyThreshold(d, t) });
+        }
+
+        for (const p of preprocessors) {
+          try {
+            const processed = p.fn(baseImageData);
+            const code = jsQR(processed.data, w, h);
+            if (code && code.data) {
+              resolve({ ok: true, data: code.data });
+              return;
+            }
+          } catch (err) {
+            console.error(`QR decode [scale=${scale.toFixed(2)} ${p.name}] failed:`, err.message);
           }
-        } catch (err) {
-          console.error(`QR decode [${p.name}] failed:`, err.message);
         }
       }
 
