@@ -719,15 +719,28 @@ function openPresentation() {
   window.api.openPresent(state.selectedId);
 }
 
-/* ═══════════════════════════════════════════
-   模态框控制
-   ═══════════════════════════════════════════ */
+/* ── 模态框控制 ──────────────────────────────────── */
+let modalCount = 0;
+let viewsHiddenByModal = false;
+
 function showModal(modal) {
   modal.classList.remove('hidden');
+  modalCount++;
+  if (modalCount === 1 && state.selectedId && state.openPatients.has(state.selectedId)) {
+    window.api.viewHidePatient(state.selectedId).catch(() => {});
+    viewsHiddenByModal = true;
+  }
 }
 
 function closeModal(modal) {
   modal.classList.add('hidden');
+  modalCount--;
+  if (modalCount === 0 && viewsHiddenByModal && state.selectedId && state.openPatients.has(state.selectedId)) {
+    window.api.viewShowPatient(state.selectedId).then(() => {
+      requestAnimationFrame(() => layoutBrowserViews());
+    }).catch(() => {});
+    viewsHiddenByModal = false;
+  }
 }
 
 function openAddPatientModal() {
