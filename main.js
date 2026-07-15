@@ -2,6 +2,16 @@ const { app, BrowserWindow, BrowserView, ipcMain, dialog, shell, clipboard } = r
 const path = require('path');
 const fs = require('fs');
 const Store = require('electron-store');
+const {
+  RGBLuminanceSource,
+  InvertedLuminanceSource,
+  BinaryBitmap,
+  HybridBinarizer,
+  GlobalHistogramBinarizer,
+  QRCodeReader,
+  MultiFormatReader,
+  DecodeHintType
+} = require('@zxing/library');
 
 // 启用 GPU 加速和 WebGL，改善 DICOM 影像在 webview 中的渲染
 app.commandLine.appendSwitch('enable-gpu-rasterization');
@@ -67,6 +77,54 @@ ipcMain.handle('qr:decode', async (_e, base64) => {
     ? base64
     : `data:image/png;base64,${base64}`;
   return { dataUrl };          // 返回 dataUrl 给渲染进程用 jsQR 解码
+});
+
+/* ── ZXing 原生二维码解码（主进程，比 jsQR 更强大） ──── */
+ipcMain.handle('qr:decodeZXing', async (_e, { data, width, height }) => {
+  try {
+    // data 是来自渲染进程 canvas 的 RGBA Uint8Array
+    const pixels = data instanceof Uint8Array ? data : new Uint8Array(data);
+
+    // 转为灰度（亮度）数组
+    const luminance = new Uint8ClampedArray(width * height);
+    for (let i = 0, j = 0; i < pixels.length; i += 4, j++) {
+      luminance[j] = (pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114) | 0;
+    }
+
+    const hints = new Map();
+    hints.set(DecodeHintType.TRY_HARDER, true);
+
+    const readers = [new QRCodeReader(), new MultiFormatReader()];
+    const binarizers = [
+      (src) => new HybridBinarizer(src),
+      (src) => new GlobalHistogramBinarizer(src),
+    ];
+
+    // 尝试正常亮度 + 反转亮度
+    const sources = [
+      new RGBLuminanceSource(luminance, width, height),
+      new InvertedLuminanceSource(new RGBLuminanceSource(luminance, width, height)),
+    ];
+
+    for (const source of sources) {
+      for (const makeBin of binarizers) {
+        for (const reader of readers) {
+          try {
+            const bitmap = new BinaryBitmap(makeBin(source));
+            const result = reader.decode(bitmap, hints);
+            if (result && result.getText()) {
+              return { ok: true, data: result.getText() };
+            }
+          } catch (e) {
+            // NotFoundException — 继续尝试
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('ZXing decode error:', err.message);
+  }
+  return { ok: false, error: 'ZXing 未能解码' };
 });
 
 /* ── 文件选择 ─────────────────────────────────────── */
