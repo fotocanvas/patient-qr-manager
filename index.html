@@ -111,6 +111,13 @@
               </svg>
               导入二维码
             </button>
+            <button class="btn btn-outline" id="btnPasteUrl" title="二维码无法识别时，可手动粘贴影像链接">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+              </svg>
+              粘贴链接
+            </button>
             <button class="btn btn-primary" id="btnPresent" title="打开汇报展示窗口">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
                 <rect x="2" y="3" width="20" height="14" rx="2"/>
@@ -253,6 +260,27 @@
       <div class="modal-footer">
         <button class="btn btn-outline" id="modalImportCancel">关闭</button>
         <button class="btn btn-primary hidden" id="modalImportConfirm">确认导入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 模态框：手动粘贴链接 ═══ -->
+  <div class="modal-overlay hidden" id="modalPasteUrl">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3>粘贴影像链接</h3>
+        <button class="modal-close" id="modalPasteUrlClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="paste-hint">二维码无法识别时，可用微信扫码获取链接，在此粘贴。每行一个链接：</p>
+        <textarea class="paste-textarea" id="pasteUrlInput" placeholder="https://example.com/imaging/..." rows="6" autofocus></textarea>
+        <div class="import-results hidden" id="pasteUrlResults">
+          <!-- 动态生成 -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" id="modalPasteUrlCancel">取消</button>
+        <button class="btn btn-primary" id="modalPasteUrlConfirm">确认添加</button>
       </div>
     </div>
   </div>
