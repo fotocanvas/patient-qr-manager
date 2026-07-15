@@ -113,40 +113,103 @@ function generateId() {
 }
 
 /* ═══════════════════════════════════════════
-   二维码解码
+   二维码解码（增强版：多种预处理 + 多尺度）
    ═══════════════════════════════════════════ */
+function toGrayscale(imageData) {
+  const data = new Uint8ClampedArray(imageData.data);
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    data[i] = gray;
+    data[i + 1] = gray;
+    data[i + 2] = gray;
+  }
+  return new ImageData(data, imageData.width, imageData.height);
+}
+
+function enhanceContrast(imageData, factor = 1.5) {
+  const data = new Uint8ClampedArray(imageData.data);
+  for (let i = 0; i < data.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const idx = i + c;
+      data[idx] = Math.min(255, Math.max(0, (data[idx] - 128) * factor + 128));
+    }
+  }
+  return new ImageData(data, imageData.width, imageData.height);
+}
+
+function applyThreshold(imageData, threshold) {
+  const data = new Uint8ClampedArray(imageData.data);
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    const v = gray > threshold ? 255 : 0;
+    data[i] = v;
+    data[i + 1] = v;
+    data[i + 2] = v;
+  }
+  return new ImageData(data, imageData.width, imageData.height);
+}
+
+function invert(imageData) {
+  const data = new Uint8ClampedArray(imageData.data);
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 255 - data[i];
+    data[i + 1] = 255 - data[i + 1];
+    data[i + 2] = 255 - data[i + 2];
+  }
+  return new ImageData(data, imageData.width, imageData.height);
+}
+
+function getImageDataAtScale(img, w, h) {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, w, h);
+  return ctx.getImageData(0, 0, w, h);
+}
+
 function decodeQRFromDataUrl(dataUrl) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const maxDim = 1200;
+      if (typeof jsQR === 'undefined') {
+        resolve({ ok: false, error: 'jsQR 库未加载，请检查网络连接' });
+        return;
+      }
+
+      const maxDim = 1600;
       let w = img.width, h = img.height;
       if (w > maxDim || h > maxDim) {
         const scale = maxDim / Math.max(w, h);
         w = Math.round(w * scale);
         h = Math.round(h * scale);
       }
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, w, h);
 
-      try {
-        const imageData = ctx.getImageData(0, 0, w, h);
-        if (typeof jsQR === 'undefined') {
-          resolve({ ok: false, error: 'jsQR 库未加载，请检查网络连接' });
-          return;
+      const baseImageData = getImageDataAtScale(img, w, h);
+
+      const preprocessors = [
+        { name: 'original', fn: (d) => d },
+        { name: 'grayscale', fn: toGrayscale },
+        { name: 'contrast', fn: enhanceContrast },
+        { name: 'threshold-128', fn: (d) => applyThreshold(d, 128) },
+        { name: 'threshold-160', fn: (d) => applyThreshold(d, 160) },
+        { name: 'threshold-inverted', fn: (d) => invert(applyThreshold(d, 128)) },
+      ];
+
+      for (const p of preprocessors) {
+        try {
+          const processed = p.fn(baseImageData);
+          const code = jsQR(processed.data, w, h);
+          if (code && code.data) {
+            resolve({ ok: true, data: code.data });
+            return;
+          }
+        } catch (err) {
+          console.error(`QR decode [${p.name}] failed:`, err.message);
         }
-        const code = jsQR(imageData.data, w, h);
-        if (code) {
-          resolve({ ok: true, data: code.data });
-        } else {
-          resolve({ ok: false, error: '未检测到二维码' });
-        }
-      } catch (err) {
-        resolve({ ok: false, error: '图片解码失败: ' + err.message });
       }
+
+      resolve({ ok: false, error: '未检测到二维码' });
     };
     img.onerror = () => resolve({ ok: false, error: '图片加载失败' });
     img.src = dataUrl;
@@ -358,7 +421,11 @@ function renderSimpleList(patient) {
       <div class="result-row-header">
         <span class="result-row-index">${i + 1}</span>
         <div class="result-row-info">
-          <div class="result-row-title">影像结果 #${i + 1}</div>
+          <input class="result-row-title result-label-input"
+                 value="${escapeHtml(r.label || `影像结果 #${i + 1}`)}"
+                 onblur="updateResultLabel('${r.id}', this.value)"
+                 onkeydown="if(event.key==='Enter') this.blur()"
+                 title="点击修改名称">
           <div class="result-row-url">${escapeHtml(r.url)}</div>
         </div>
         <div class="result-row-actions">
@@ -385,7 +452,11 @@ function renderCardGrid(patient) {
     <div class="card-item" data-result-id="${r.id}">
       <div class="card-header">
         <span class="card-index">${i + 1}</span>
-        <span class="card-url" title="${escapeHtml(r.url)}">${escapeHtml(r.url)}</span>
+        <input class="card-label-input"
+               value="${escapeHtml(r.label || `影像结果 #${i + 1}`)}"
+               onblur="updateResultLabel('${r.id}', this.value)"
+               onkeydown="if(event.key==='Enter') this.blur()"
+               title="点击修改名称">
         <div class="card-actions">
           <button class="btn btn-ghost btn-icon btn-sm" onclick="focusResult('${r.id}')" title="放大查看">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -543,7 +614,9 @@ async function focusResult(resultId) {
   dom.cardGrid.classList.add('focused');
   dom.resultsList.classList.add('hidden');
   dom.focusBar.classList.remove('hidden');
-  dom.focusTitle.textContent = `${patient.name} — 影像结果 #${patient.results.indexOf(result) + 1}`;
+  const resultIndex = patient.results.indexOf(result) + 1;
+  const resultLabel = result.label || `影像结果 #${resultIndex}`;
+  dom.focusTitle.textContent = `${patient.name} — ${resultLabel}`;
   $('#btnFocusFullscreen').onclick = () => window.api.openExternal(result.url);
 
   requestAnimationFrame(() => layoutFocusedView());
@@ -575,6 +648,28 @@ function fullscreenResult(resultId) {
   if (!patient) return;
   const result = patient.results.find(r => r.id === resultId);
   if (result) window.api.fullscreenOpen(result.url);
+}
+
+function updateResultLabel(resultId, label) {
+  const patient = getPatient(state.selectedId);
+  if (!patient) return;
+  const result = patient.results.find(r => r.id === resultId);
+  if (!result) return;
+
+  const trimmed = label.trim();
+  const newLabel = trimmed || '';
+  if (result.label === newLabel) return;
+
+  result.label = newLabel;
+  save();
+
+  // 同步更新焦点栏标题
+  if (state.focusedResultId === resultId && dom.focusBar) {
+    const idx = patient.results.indexOf(result) + 1;
+    dom.focusTitle.textContent = `${patient.name} — ${result.label || `影像结果 #${idx}`}`;
+  }
+
+  toast('名称已保存', 'success');
 }
 
 async function deleteResult(resultId) {
