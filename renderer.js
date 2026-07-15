@@ -48,6 +48,11 @@ const dom = {
   importProgress:    $('#importProgress'),
   importResults:     $('#importResults'),
   modalImportConfirm:$('#modalImportConfirm'),
+  // 模态框：粘贴链接
+  modalPasteUrl:       $('#modalPasteUrl'),
+  pasteUrlInput:       $('#pasteUrlInput'),
+  pasteUrlResults:     $('#pasteUrlResults'),
+  modalPasteUrlConfirm:$('#modalPasteUrlConfirm'),
 };
 
 /* ═══════════════════════════════════════════
@@ -487,6 +492,113 @@ function confirmImport() {
   renderSidebar();
 
   toast(`导入成功！当前共 ${patient.results.length} 项影像结果`, 'success');
+
+  // 如果该病人已有打开的视图，为新导入的结果也创建 BrowserView
+  if (state.openPatients.has(state.selectedId)) {
+    const newResults = patient.results.slice(-newCount);
+    window.api.viewOpenAll(state.selectedId, newResults).then(() => {
+      window.api.viewShowPatient(state.selectedId);
+      requestAnimationFrame(() => layoutBrowserViews());
+    });
+  }
+}
+
+/* ═══════════════════════════════════════════
+   手动粘贴链接（二维码识别失败时的备份方案）
+   ═══════════════════════════════════════════ */
+function startPasteUrl() {
+  if (!state.selectedId) {
+    toast('请先选择一个病人', 'warning');
+    return;
+  }
+  dom.pasteUrlInput.value = '';
+  dom.pasteUrlResults.classList.add('hidden');
+  dom.pasteUrlResults.innerHTML = '';
+  showModal(dom.modalPasteUrl);
+  setTimeout(() => dom.pasteUrlInput.focus(), 50);
+}
+
+function confirmPasteUrl() {
+  const patient = getPatient(state.selectedId);
+  if (!patient) return;
+
+  const raw = dom.pasteUrlInput.value.trim();
+  if (!raw) {
+    toast('请粘贴至少一个链接', 'warning');
+    return;
+  }
+
+  const existingUrls = new Set(patient.results.map(r => r.url));
+  const lines = raw.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
+  const results = [];
+
+  for (const line of lines) {
+    // 补全协议：如果以 www. 开头，自动加 https://
+    let url = line;
+    if (!/^https?:\/\//i.test(url) && !/^ftp:\/\//i.test(url)) {
+      if (/^www\./i.test(url) || /^[\w-]+\.[\w.-]+/.test(url)) {
+        url = 'https://' + url;
+      }
+    }
+
+    const isValid = /^https?:\/\/\S+$/i.test(url);
+    if (!isValid) {
+      results.push({ url: line, status: 'fail', message: '不是有效的链接' });
+      continue;
+    }
+
+    const isDup = existingUrls.has(url);
+    results.push({
+      url,
+      status: isDup ? 'dup' : 'success',
+      message: isDup ? '已存在，将跳过' : '链接有效',
+    });
+    if (!isDup) existingUrls.add(url);
+  }
+
+  const newUrls = results.filter(r => r.status === 'success');
+
+  // 显示结果预览
+  dom.pasteUrlResults.classList.remove('hidden');
+  dom.pasteUrlResults.innerHTML = results.map((r, i) => `
+    <div class="import-item">
+      <div class="import-item-icon ${r.status}">
+        ${r.status === 'success' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="18" height="18"><polyline points="20 6 9 17 4 12"/></svg>' :
+          r.status === 'dup' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M12 9v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>' :
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'}
+      </div>
+      <div class="import-item-info">
+        <h4>链接 ${i + 1}</h4>
+        <p>${escapeHtml(r.url)}</p>
+      </div>
+      <span class="import-item-status ${r.status}">
+        ${r.status === 'success' ? '新增' : r.status === 'dup' ? '重复' : '无效'}
+      </span>
+    </div>
+  `).join('');
+
+  if (newUrls.length === 0) {
+    toast('没有有效的新链接可导入', 'warning');
+    return;
+  }
+
+  // 添加到病人结果
+  const now = new Date().toISOString();
+  const newCount = newUrls.length;
+  for (const item of newUrls) {
+    patient.results.push({
+      id: generateId(),
+      url: item.url,
+      importedAt: now,
+      label: '',
+    });
+  }
+
+  save();
+  closeModal(dom.modalPasteUrl);
+  renderPatientDetail();
+  renderSidebar();
+  toast(`成功添加 ${newCount} 个链接！当前共 ${patient.results.length} 项影像结果`, 'success');
 
   // 如果该病人已有打开的视图，为新导入的结果也创建 BrowserView
   if (state.openPatients.has(state.selectedId)) {
@@ -1061,6 +1173,21 @@ function bindEvents() {
     if (e.target === dom.modalImport) closeModal(dom.modalImport);
   });
   dom.modalImportConfirm.addEventListener('click', confirmImport);
+
+  /* ── 模态框：粘贴链接 ─────────────────── */
+  $('#btnPasteUrl').addEventListener('click', startPasteUrl);
+  $('#modalPasteUrlClose').addEventListener('click', () => closeModal(dom.modalPasteUrl));
+  $('#modalPasteUrlCancel').addEventListener('click', () => closeModal(dom.modalPasteUrl));
+  dom.modalPasteUrl.addEventListener('click', (e) => {
+    if (e.target === dom.modalPasteUrl) closeModal(dom.modalPasteUrl);
+  });
+  dom.modalPasteUrlConfirm.addEventListener('click', confirmPasteUrl);
+  // Ctrl+Enter 快捷确认
+  dom.pasteUrlInput.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      confirmPasteUrl();
+    }
+  });
 
   /* ── 汇报展示 ─────────────────────────── */
   $('#btnPresent').addEventListener('click', openPresentation);
