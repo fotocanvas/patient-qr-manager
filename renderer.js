@@ -317,12 +317,7 @@ function getImageDataAtScale(img, w, h) {
 function decodeQRFromDataUrl(dataUrl) {
   return new Promise((resolve) => {
     const img = new Image();
-    img.onload = () => {
-      if (typeof jsQR === 'undefined') {
-        resolve({ ok: false, error: 'jsQR 库未加载，请检查网络连接' });
-        return;
-      }
-
+    img.onload = async () => {
       const MAX_DIM = 1600;
       let baseW = img.width;
       let baseH = img.height;
@@ -330,6 +325,34 @@ function decodeQRFromDataUrl(dataUrl) {
         const scale = MAX_DIM / Math.max(baseW, baseH);
         baseW = Math.round(baseW * scale);
         baseH = Math.round(baseH * scale);
+      }
+
+      /* ── 第一步：ZXing 原生解码（主进程，更强大） ── */
+      const zxingScales = [1.0, 0.5, 2.0, 3.0, 0.75];
+      for (const scale of zxingScales) {
+        const w = Math.max(100, Math.round(baseW * scale));
+        const h = Math.max(100, Math.round(baseH * scale));
+        try {
+          const imageData = getImageDataAtScale(img, w, h);
+          // 发送 RGBA 像素数据到主进程进行 ZXing 解码
+          const zxingResult = await window.api.decodeQRZXing({
+            data: imageData.data,
+            width: w,
+            height: h
+          });
+          if (zxingResult.ok) {
+            resolve({ ok: true, data: zxingResult.data });
+            return;
+          }
+        } catch (err) {
+          console.error(`ZXing decode [scale=${scale}] error:`, err.message);
+        }
+      }
+
+      /* ── 第二步：jsQR 回退（多尺度 + 多种预处理） ── */
+      if (typeof jsQR === 'undefined') {
+        resolve({ ok: false, error: '二维码识别失败（jsQR 库未加载）' });
+        return;
       }
 
       const scales = [0.75, 1.0, 1.33, 1.67];
@@ -352,7 +375,6 @@ function decodeQRFromDataUrl(dataUrl) {
           { name: 'threshold-inverted-128', fn: (d) => invert(applyThreshold(d, 128)) },
         ];
 
-        // 尝试固定阈值
         for (const t of thresholds) {
           preprocessors.push({ name: `threshold-${t}`, fn: (d) => applyThreshold(d, t) });
         }
